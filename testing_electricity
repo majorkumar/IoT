@@ -14,7 +14,7 @@
 #define POWER 27
 #define PIR 26
 
-
+bool running = false; 
 
 char webpage[] PROGMEM = R"=====(
 
@@ -100,28 +100,20 @@ void setup(void)
   });
 
 
-   server.on("/Power/on", HTTP_GET, [](AsyncWebServerRequest * request)
-    { 
-    long state = digitalRead(PIR);
-     if(state == HIGH){
-      digitalWrite(POWER,HIGH);
-      Serial.println("Motion Detectec, Power is ON");                 //sensor based power switching...
-      delay(6000);
-      }
-      else{
-        digitalWrite(POWER, LOW);
-        Serial.println("No One ");
-        delay(60);
-        }
-        
+  server.on("/Power/on", HTTP_GET, [](AsyncWebServerRequest * request)                        /////////check from here to END :)
+   { 
+      running = true  ;
+      loop();
+      
   request->send_P(200, "text/html", webpage);
   });
    server.on("/Power/off", HTTP_GET, [](AsyncWebServerRequest * request)
   { 
+    running = false ;
     digitalWrite(POWER,LOW);
   request->send_P(200, "text/html", webpage);
   });
-
+  
 
 
   server.onNotFound(notFound);
@@ -129,7 +121,21 @@ void setup(void)
   server.begin();  // it will start webserver
 }
 
-
 void loop(void)
 {
+   if(running == true){
+    
+    long state = digitalRead(PIR);
+ 
+     if(state == HIGH){
+      digitalWrite(POWER,HIGH);
+      Serial.println("Motion Detected, Power is ON");                 //sensor based power switching...
+      delay(0);
+      }
+      else{
+        digitalWrite(POWER,LOW);
+        Serial.println("No One ");
+        delay(0);
+      }
+   }
 }
