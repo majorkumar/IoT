@@ -1,0 +1,525 @@
+/* Supply your chip and sensor through the common and constant 5volt Power supply from adoptor and use Vin of ESP32, otherwise sensor will mis-behave */
+
+// Import required libraries
+#include <WiFi.h>
+#include "time.h"
+
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 16200;
+const int   daylightOffset_sec = 3600;
+
+
+// Replace with your network credentials
+const char* ssid = "QUANTIAN";
+const char* password = "*********";
+
+#define LED 33        //load connected
+char h[3] = "14";    //hour variable at which we want to trigger light
+char timeHour[3];
+
+
+bool ledState = 0;
+bool ledState2 = 0;
+bool ledState3 = 0;
+bool ledState4 = 0;
+const int ledPin = 2;
+const int ledPin2 = 12;
+const int ledPin3 = 13;
+const int ledPin4 = 25;
+
+const int ldrPin = 26;          // output connected to sensor
+const int pirPin = 27;         // output connected to sensor
+
+const int LDR_Pin = 34;              // pins at which sensor is attached to
+const int PIR_Pin = 35;             // pins at which sensor is attached to
+
+int state = LOW;              // by default, no motion detected
+int val = 0;                 // variable to store the sensor status (value)
+int lightInit;              // initial value for light
+int lightVal;              // light reading for ldr
+
+
+
+// Create AsyncWebServer object on port 80
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
+
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML><html>
+<head>
+  <title>ESP Web Server</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <style>
+  html {
+    font-family: Arial, Helvetica, sans-serif;
+    text-align: center;
+  }
+  h1 {
+    font-size: 1.8rem;
+    color: white;
+  }
+  h2{
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #143642;
+  }
+  .topnav {
+    overflow: hidden;
+    background-color: #143642;
+  }
+  body {
+    margin: 0;
+  }
+  .content {
+    padding: 30px;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+  .card {
+    background-color: #F8F7F9;;
+    box-shadow: 2px 2px 12px 1px rgba(140,140,140,.5);
+    padding-top:10px;
+    padding-bottom:20px;
+  }
+  .button {
+    padding: 15px 50px;
+    font-size: 24px;
+    text-align: center;
+    outline: none;
+    color: #fff;
+    background-color: #0f8b8d;
+    border: none;
+    border-radius: 5px;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: rgba(0,0,0,0);
+   }
+   /*.button:hover {background-color: #0f8b8d}*/
+   .button:active {
+     background-color: #0f8b8d;
+     box-shadow: 2 2px #CDCDCD;
+     transform: translateY(2px);
+   }
+   .state {
+     font-size: 1.5rem;
+     color:#8c8c8c;
+     font-weight: bold;
+   }
+  </style>
+  
+<title>ESP Web Server</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+</head>
+<body>
+  <div class="topnav">
+    <h1>ESP WebSocket Server</h1>
+  </div>
+  <div class="content">
+    <div class="card">
+      <h2>Output - Light</h2>
+      <p class="state">state: <span id="state">%STATE%</span></p>
+      <p><button id="button" class="button">Toggle</button></p>
+    </div>
+  </div>
+  <div class="content">
+    <div class="card">
+      <h2>Output - Fan</h2>
+      <p class="state">state: <span id="state2">%STATE2%</span></p>
+      <p><button id="button2" class="button">Toggle2</button></p>
+    </div>
+  </div>
+  <div class="content">
+    <div class="card">
+      <h2>Output - Light Detection</h2>
+      <p class="state">state: <span id="state3">%STATE3%</span></p>
+      <p><button id="button3" class="button">Toggle3</button></p>
+    </div>
+  </div>
+  <div class="content">
+    <div class="card">
+      <h2>Output - Activity Detection</h2>
+      <p class="state">state: <span id="state4">%STATE4%</span></p>
+      <p><button id="button4" class="button">Toggle4</button></p>
+    </div>
+  </div>
+  
+<script>
+  var gateway = `ws://${window.location.hostname}/ws`;
+
+  // var gateway = 'ws://localhost:8081/';
+   
+  //var gateway = 'ws://${window.location.hostname}/ws';
+ //var gateway = 'ws://192.168.43.2/ws';
+ //var gateway = 'ws://adc9ce64d385.ngrok.io/ws';
+
+ 
+  var websocket;
+  window.addEventListener('load', onLoad);
+  function initWebSocket() {
+    console.log('Trying to open a WebSocket connection...');
+    websocket = new WebSocket(gateway);
+    websocket.onopen    = onOpen;
+    websocket.onclose   = onClose;
+    websocket.onmessage = onMessage; // <-- add this line
+  }
+  function onOpen(event) {
+    console.log('Connection opened');
+    
+    var json = JSON.stringify({ message: 'Hello 👋' });
+    socket.send(json);
+  }
+  function onClose(event) {
+    console.log('Connection closed');
+    setTimeout(initWebSocket, 2000);
+  }
+  function onMessage(event) {
+
+    console.log(event.data);
+     
+    if (event.data == "1led1"){
+      document.getElementById('state').innerHTML = "ON";
+    }
+    if(event.data == "1led2"){
+      document.getElementById('state2').innerHTML = "ON";
+    }
+    if(event.data == "1led3"){
+      document.getElementById('state3').innerHTML = "ON";
+    }
+    if(event.data == "1led4"){
+      document.getElementById('state4').innerHTML = "ON";
+    }
+    
+     if(event.data == "0led1"){
+      document.getElementById('state').innerHTML = "OFF";
+    }
+     if(event.data == "0led2"){
+      document.getElementById('state2').innerHTML = "OFF";
+    }
+      if(event.data == "0led3"){
+      document.getElementById('state3').innerHTML = "OFF";
+    }
+     if(event.data == "0led4"){
+      document.getElementById('state4').innerHTML = "OFF";
+    }
+  }
+ 
+  function onLoad(event) {
+    initWebSocket();
+    initButton();
+    initButton2();    
+    initButton3();
+    initButton4();
+  }
+  function initButton() {
+    document.getElementById('button').addEventListener('click', toggle);
+  }
+  function toggle(){
+    websocket.send('toggle');
+  } 
+  function initButton2() {
+    document.getElementById('button2').addEventListener('click', toggle2);
+  }
+  function toggle2(){
+    websocket.send('toggle2');
+  }
+    function initButton3() {
+    document.getElementById('button3').addEventListener('click', toggle3);
+  }
+  function toggle3(){
+    websocket.send('toggle3');
+  }
+   function initButton4() {
+    document.getElementById('button4').addEventListener('click', toggle4);
+  }
+  function toggle4(){
+    websocket.send('toggle4');
+  }
+</script>
+</body>
+</html>
+)rawliteral";
+
+void notifyClients() {
+  ws.textAll(String(ledState)+"led1");
+}
+void notifyClients2() {
+  ws.textAll(String(ledState2)+"led2");
+}
+void notifyClients3() {
+  ws.textAll(String(ledState3)+"led3");
+}
+void notifyClients4() {
+  ws.textAll(String(ledState4)+"led4");
+}
+
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+  AwsFrameInfo *info = (AwsFrameInfo*)arg;
+  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+    data[len] = 0;
+    if (strcmp((char*)data, "toggle") == 0) {
+      ledState = !ledState;
+      notifyClients();
+    }
+      if (strcmp((char*)data, "toggle2") == 0) {
+      ledState2 = !ledState2;
+      notifyClients2();
+    }
+        if (strcmp((char*)data, "toggle3") == 0) {
+      ledState3 = !ledState3;
+      notifyClients3();
+    }
+      if (strcmp((char*)data, "toggle4") == 0) {
+      ledState4 = !ledState4;
+      notifyClients4();
+    }
+  }
+}
+
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
+             void *arg, uint8_t *data, size_t len) {
+  switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      break;
+    case WS_EVT_DISCONNECT:
+      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      break;
+    case WS_EVT_DATA:
+      handleWebSocketMessage(arg, data, len);
+      break;
+    case WS_EVT_PONG:
+    case WS_EVT_ERROR:
+      break;
+  }
+}
+
+void initWebSocket() {
+  ws.onEvent(onEvent);
+  server.addHandler(&ws);
+}
+
+String processor(const String& var){
+  Serial.println(var);
+  if(var == "STATE"){
+    if (ledState){
+      return "ON";
+    }
+    else{
+      return "OFF";
+    }
+  }
+  if(var == "STATE2"){
+    if (ledState2){
+      return "ON";
+    }
+    else{
+      return "OFF";
+    }
+  }
+    if(var == "STATE3"){
+    if (ledState3){
+      return "ON";
+    }
+    else{
+      return "OFF";
+    }
+  }
+   if(var == "STATE4"){
+    if (ledState4){
+      return "ON";
+    }
+    else{
+      return "OFF";
+    }
+  }
+}
+
+// Dividing task between Core_0 & Core_1 --------- 
+
+TaskHandle_t Task1;
+TaskHandle_t Task2;
+
+
+void setup(){
+  // Serial port for debugging purposes
+  Serial.begin(115200);
+
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);
+  
+  pinMode(ledPin2, OUTPUT);
+  digitalWrite(ledPin2, LOW);
+  
+   pinMode(ledPin3, OUTPUT);
+   pinMode(ldrPin, OUTPUT);
+   pinMode(LDR_Pin, INPUT);
+    digitalWrite(ledPin3, LOW);
+    digitalWrite(ldrPin, LOW);
+     lightInit = analogRead(LDR_Pin);
+     Serial.println(lightInit);
+
+   pinMode(ledPin4, OUTPUT);
+   pinMode(pirPin, OUTPUT);
+   pinMode(PIR_Pin, INPUT);
+    digitalWrite(ledPin4, LOW);
+    digitalWrite(pirPin, LOW);
+
+  pinMode(33,OUTPUT);
+    
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi..");
+  }
+
+  // Print ESP Local IP Address
+  Serial.println(WiFi.localIP());
+
+  initWebSocket();
+
+  // Init and get the time for real time
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  printLocalTime();
+
+  // Route for root / web page
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", index_html, processor);
+  });
+
+  // Start server
+  server.begin();
+
+//**************  Defining multi Core programming for multitasking....****************
+//create a task that will be executed in the Task1code() function, with priority 1 and executed on core 1
+  
+  xTaskCreatePinnedToCore(
+                    Task1code,   /* Task function. */
+                    "Task1",     /* name of task. */
+                    10000,       /* Stack size of task */
+                    NULL,        /* parameter of the task */
+                    1,           /* priority of the task */
+                    &Task1,      /* Task handle to keep track of created task */
+                    1);          /* pin task to core 1 */                  
+  delay(100); 
+
+
+  //create a task that will be executed in the Task2code() function, with priority 0 and executed on core 0
+  
+  xTaskCreatePinnedToCore(
+                    Task2code,   /* Task function. */
+                    "Task2",     /* name of task. */
+                    10000,       /* Stack size of task */
+                    NULL,        /* parameter of the task */
+                    0,           /* priority of the task */
+                    &Task2,      /* Task handle to keep track of created task */
+                    0);          /* pin task to core 0 */
+    delay(100); 
+     
+}
+
+/* ################# Functions for Sensor Operation in differnt Core ###################*/
+
+void Task1code( void * pvParameters ){
+  Serial.print("Task1 running on core ");
+  Serial.println(xPortGetCoreID());
+
+  for(;;){
+   
+  lightVal = analogRead(LDR_Pin);                      // read the current light levels
+  
+  //if lightVal is less than our initial reading withing a threshold then it is dark.
+
+  if( (lightVal <  100) && (digitalRead(ledPin3) == HIGH) ){
+    
+      digitalWrite(ldrPin,HIGH);                    // turn on light
+      delay(2000);
+  }
+  //otherwise, it is bright
+  else
+  {
+    digitalWrite(ldrPin, LOW);                   // turn off light
+    delay(10);
+   }
+  }
+}
+
+void Task2code( void * pvParameters ){
+  Serial.print("Task2 running on core ");
+  Serial.println(xPortGetCoreID());
+
+  for(;;){
+   
+ // val = digitalRead(PIR_Pin)(analogRead(PIR_Pin) > 3300);            // read sensor value
+  // (analogRead(PIR_Pin) > 3000)
+   
+   if((digitalRead(PIR_Pin) == HIGH) && (digitalRead(ledPin4) == HIGH)){         // check if the sensor is HIGH
+    digitalWrite(pirPin, HIGH);                                                // turn LED ON
+    delay(3000);                                                             // delay 100 milliseconds 
+  } 
+  else {
+      digitalWrite(pirPin, LOW);          // turn LED OFF
+      delay(0);                      // delay 200 milliseconds 
+   }
+  }
+
+}
+
+  //*********Function for getting time*************************
+  
+void printLocalTime(){
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+ 
+  Serial.println(&timeinfo, "%Y");
+  
+  strftime(timeHour,3, "%H", &timeinfo);
+  Serial.println(timeHour);
+  Serial.println(h);
+}
+
+void timer(){
+  delay(1000);
+  printLocalTime();
+  
+  if(strcmp(h,timeHour) == 0){
+    digitalWrite(LED,HIGH);
+    Serial.println("Power is ON");
+    }
+    else{
+      digitalWrite(LED,LOW);
+      Serial.println("Power is OFF");
+    } 
+}
+
+
+
+
+void loop() {
+  
+  ws.cleanupClients();
+  
+  digitalWrite(ledPin, ledState);
+  
+  digitalWrite(ledPin2, ledState2);
+
+  digitalWrite(ledPin3, ledState3);
+
+  digitalWrite(ledPin4, ledState4);
+
+  timer();
+  
+}
