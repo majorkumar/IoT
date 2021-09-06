@@ -1,0 +1,256 @@
+#include <WiFi.h>
+#include "time.h"
+
+#include <stdlib.h>
+#include <ArduinoJson.h>
+#include <WebSocketsServer.h>
+
+
+// Constants
+const char* ssid = "QUANTIAN";
+const char* password = "46406903";
+
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 16200;
+const int   daylightOffset_sec = 3600;
+
+
+#define LED 14
+
+char h[3] = "11";
+char timeHour[3];
+
+//......variable for OUTPUT load........
+int timerLED = 12;
+int ldrlight = 13;
+int PIR_light = 15;
+
+
+//......Input Pin for Sensor Reading......
+int PIR_Pin  = 26;
+int LDR_Pin  = 27;
+
+
+//......Variable for JSON Objects..... 
+const char* motion;
+const char* lightsense;
+
+const char* fan;
+const char* light;
+const char* lamp;
+const char* starttime;
+const char* endtime;
+
+// Globals
+WebSocketsServer webSocket = WebSocketsServer(80);
+
+// Called when receiving any WebSocket message
+void onWebSocketEvent(uint8_t num,
+                      WStype_t type,
+                      uint8_t * payload,
+                      size_t length) {
+
+  // Figure out the type of WebSocket event
+  switch(type) {
+
+    // Client has disconnected
+    case WStype_DISCONNECTED:
+      Serial.printf("[%u] Disconnected!\n", num);
+      break;
+  
+    // New client has connected
+    case WStype_CONNECTED:
+      {
+        IPAddress ip = webSocket.remoteIP(num);
+        Serial.printf("[%u] Connection from ", num);
+        Serial.println(ip.toString());
+
+        String appData = String((char*)( payload)); //typecast
+       // appData = "{\"Fan\":\"ON\",\"Light\":\"OFF\",\"Lamp\":\"ON\",\"Auto\":[{\"Name\":\"Fan\",\"startTime\":10,\"endTime\":12}]}";   ,\"automatic\":{\"Fan\":\"ON\",\"Light\":\"OFF\",\"Lamp\":\"ON\",\"Plug\":\"ON\"}    ,[{\"Name\":\"Fan\",\"startTime\":10,\"endTime\":12}]
+
+        appData = "{\"intelligent\":{\"motionsense\":{\"Fan\":\"ON\",\"Lamp\":\"ON\"}},\"lightsense\":{\"Light\":\"OFF\",\"Lamp\":\"ON\"}}";       
+                                                                                       
+         webSocket.sendTXT(num , appData);
+      }
+      break;
+
+          // Echo text message back to client
+       
+    case WStype_TEXT:
+    
+     String appData = String((char*)( payload)); //typecast
+      Serial.println(appData);
+      
+      DynamicJsonDocument doc(800);
+      
+      deserializeJson(doc, appData);
+      DeserializationError error = deserializeJson(doc, appData);
+      
+      fan = doc["Fan"];
+      light = doc["light"];
+      lamp = doc["Lamp"];
+      starttime = doc["Auto"][0]["startTime"];
+      endtime = doc["Auto"][0]["endTime"];
+
+      h = starttime;
+
+      Serial.println(fan);
+      Serial.println(light);
+      Serial.println(lamp);
+      Serial.println(starttime);
+      Serial.println(endtime);
+      
+      if (error) {
+      Serial.print("deserializeJson() failed: ");
+      Serial.println(error.c_str());
+      return;
+      }
+      String staTus = doc["id"];
+      Serial.println(staTus);
+ 
+  }
+}
+
+TaskHandle_t Task1;
+TaskHandle_t Task2;
+
+// LED pins
+const int led1 = 2;
+const int led2 = 4;
+
+void setup() {
+
+  pinMode(timerLED, OUTPUT);
+  pinMode(ldrlight, OUTPUT);
+  pinMode(PIR_light, OUTPUT);
+
+  pinMode(PIR_Pin, INPUT);
+  pinMode(LDR_Pin, INPUT);
+  // digitalRead(PIR_Pin, INPUT);
+  // digitalRead(LDR_Pin, INPUT);
+
+
+  // Start Serial port
+  Serial.begin(115200);
+
+  // Connect to access point
+  Serial.println("Connecting");
+  WiFi.begin(ssid, password);
+  while ( WiFi.status() != WL_CONNECTED ) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  // Print our IP address
+  Serial.println("Connected!");
+  Serial.print("My IP address: ");
+  Serial.println(WiFi.localIP());
+
+  // Init and get the time for real time
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+ // printLocalTime();
+  
+
+  // Start WebSocket server and assign callback
+  webSocket.begin();
+  webSocket.onEvent(onWebSocketEvent);
+ 
+  pinMode(led1, OUTPUT);
+  pinMode(led2, OUTPUT);
+
+  //create a task that will be executed in the Task1code() function, with priority 1 and executed on core 0
+  xTaskCreatePinnedToCore(
+                    Task1code,   /* Task function. */
+                    "Task1",     /* name of task. */
+                    10000,       /* Stack size of task */
+                    NULL,        /* parameter of the task */
+                    1,           /* priority of the task */
+                    &Task1,      /* Task handle to keep track of created task */
+                    0);          /* pin task to core 0 */                  
+  delay(500); 
+
+  //create a task that will be executed in the Task2code() function, with priority 1 and executed on core 1
+  xTaskCreatePinnedToCore(
+                    Task2code,   /* Task function. */
+                    "Task2",     /* name of task. */
+                    10000,       /* Stack size of task */
+                    NULL,        /* parameter of the task */
+                    1,           /* priority of the task */
+                    &Task2,      /* Task handle to keep track of created task */
+                    1);          /* pin task to core 1 */
+    delay(500); 
+}
+
+//Task1code: blinks an LED every 1000 ms
+void Task1code( void * pvParameters ){
+  Serial.print("Task1 running on core ");
+  Serial.println(xPortGetCoreID());
+
+  for(;;){
+    digitalWrite(led1, HIGH);
+    delay(1000);
+    digitalWrite(led1, LOW);
+    delay(1000);
+
+     if(strcmp(h,timeHour) == 0){
+    digitalWrite(LED,HIGH);
+    Serial.println("Power is ON");
+    }
+    else{
+      digitalWrite(LED,LOW);
+      Serial.println("Power is OFF");
+    } 
+  } 
+}
+
+//Task2code: blinks an LED every 700 ms
+void Task2code( void * pvParameters ){
+  Serial.print("Task2 running on core ");
+  Serial.println(xPortGetCoreID());
+
+  for(;;){
+    digitalWrite(led2, HIGH);
+    delay(700);
+    digitalWrite(led2, LOW);
+    delay(700);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*
+void printLocalTime(){
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+ 
+  Serial.println(&timeinfo, "%Y");
+  
+  strftime(timeHour,3, "%H", &timeinfo);
+  Serial.println(timeHour);
+  //Serial.println(h);
+}
+*/
+/*
+void timer(){
+  //delay(1000);
+  //printLocalTime();
+  
+  if(strcmp(starttime,timeHour) == 0){
+    digitalWrite(LED,HIGH);
+    Serial.println("Power is ON");
+    }
+    else{
+      digitalWrite(LED,LOW);
+      Serial.println("Power is OFF");
+    } 
+}
+*/
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void loop() {
+ // timer();
+  webSocket.loop();
+}
